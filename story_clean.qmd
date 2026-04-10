@@ -1,0 +1,774 @@
+---
+title: "Story Group Analysis"
+format: html
+editor: visual
+---
+
+
+## Section 1: Load Data
+
+```{r}
+# Load necessary libraries
+library(readxl)
+library(ggplot2)
+library(dplyr)
+
+# Step 1: Load the Excel file into R
+story_df <- read_xlsx(file.choose())
+
+```
+
+## Section 2: Drop Qualtrics Metadata Columns
+
+```{r}
+library(dplyr)
+
+story_df <- story_df %>%
+  select(-c(
+    StartDate, EndDate, Status, IPAddress, Progress, Finished, RecordedDate, ResponseId,
+    RecipientLastName, RecipientFirstName, RecipientEmail, ExternalReference, LocationLatitude, LocationLongitude,
+    DistributionChannel, UserLanguage, `Duration (in seconds)`
+  ))
+
+# Display the updated dataframe
+story_df <- story_df %>%
+  select(
+-contains("15-second pause"),
+    -contains("20-second delay"),
+    - contains("pause_"),
+    - contains("Q3_"))
+
+
+
+```
+
+## Section 3: Headphone Check Filtering
+
+failed headphone checks 6.0 (correct answer) for column Q2...22 5.0 (correct answer) for column Q2...23 6.0 (correct answer) for column Q2...24
+
+Anyone who got a wrong answer will be removed! Then, I will count the number of IDs (people still left)
+
+```{r}
+# Check individual conditions
+story_clean <- story_df[-1, ]
+
+# Convert columns to numeric
+story_clean <- story_clean %>%
+  mutate(across(c(`Q1...22`, `Q2...23`, `Q3...24`), as.numeric))
+
+story_df <- story_df %>%
+  mutate(across(c(`Q1...22`, `Q2...23`, `Q3...24`), as.numeric))
+
+# Handle missing values
+story_clean <- story_clean %>%
+  filter(!is.na(`Q1...22`) & !is.na(`Q2...23`) & !is.na(`Q3...24`)) %>%
+  filter(`Q1...22` == 6.0 & 
+         `Q2...23` == 5.0 & 
+         `Q3...24` == 6.0)
+
+story_df <- story_df %>%
+  filter(!is.na(`Q1...22`) & !is.na(`Q2...23`) & !is.na(`Q3...24`)) %>%
+  filter(`Q1...22` == 6.0 & 
+         `Q2...23` == 5.0 & 
+         `Q3...24` == 6.0)
+
+```
+
+## Section 4: Build NES_combined_df (Canonical Version)
+
+Constructs NES_combined_df with SRQ, Familiar, Enjoy, and NES1-4 for all 8 audio stimuli using the make_audio_nes_df() helper. All models below draw from this dataframe.
+
+```{r}
+# MEGA DATAFRAME REMAKING (ALL-IN-ONE)
+# Adds SRQ + Familiar + Enjoy columns per audio
+# Keeps SRQ==2 rows (does NOT drop them just because ratings are NA)
+# Computes Average ONLY from the 4 NES items (never from SRQ/Familiar/Enjoy)
+# Then renames NES items, adds AudNum, rbinds, and adds grouping columns
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Helper: build one audio NES df safely
+make_audio_nes_df <- function(df, audnum, srq_col, fam_col, enjoy_col, nes_cols) {
+  out <- df %>%
+    select(ID, all_of(srq_col), all_of(fam_col), all_of(enjoy_col), all_of(nes_cols)) %>%
+    rename(
+      SRQ      = all_of(srq_col),
+      Familiar = all_of(fam_col),
+      Enjoy    = all_of(enjoy_col)
+    ) %>%
+    mutate(
+      across(c(SRQ, Familiar, Enjoy, all_of(nes_cols)), ~ as.numeric(as.character(.)))
+    ) %>%
+    mutate(
+      Average = if_else(
+        rowSums(!is.na(across(all_of(nes_cols)))) > 0,
+        rowMeans(across(all_of(nes_cols)), na.rm = TRUE),
+        NA_real_
+      ),
+      AudNum = audnum
+    ) %>%
+    filter(!is.na(ID), !is.na(SRQ)) %>%   # keep SRQ==2 rows even if ratings are NA
+    rename(
+      NES1 = all_of(nes_cols[1]),
+      NES2 = all_of(nes_cols[2]),
+      NES3 = all_of(nes_cols[3]),
+      NES4 = all_of(nes_cols[4])
+    )
+
+  out
+}
+
+# Build each audio dataframe 
+Aud_01_NES_df <- make_audio_nes_df(
+  df = story_df, audnum = 1,
+  srq_col   = "Audio1...29",
+  fam_col   = "Audio1_1...35",
+  enjoy_col = "Audio1_1...36",
+  nes_cols  = c("Audio1_1...37","Audio1_1...38","Audio1_1...39","Audio1_1...40")
+)
+
+Aud_02_NES_df <- make_audio_nes_df(
+  df = story_df, audnum = 2,
+  srq_col   = "Audio2...52",
+  fam_col   = "Audio2_1...58",
+  enjoy_col = "Audio2_1...59",
+  nes_cols  = c("Audio2_1...60","Audio2_1...61","Audio2_1...62","Audio2_1...63")
+)
+
+Aud_05_NES_df <- make_audio_nes_df(
+  df = story_df, audnum = 5,
+  srq_col   = "Audio5...77",
+  fam_col   = "Audio5_1...83",
+  enjoy_col = "Audio5_1...84",
+  nes_cols  = c("Audio5_1...85","Audio5_1...86","Audio5_1...87","Audio5_1...88")
+)
+
+Aud_06_NES_df <- make_audio_nes_df(
+  df = story_df, audnum = 6,
+  srq_col   = "Audio6...100",
+  fam_col   = "Audio6_1...106",
+  enjoy_col = "Audio6_1...107",
+  nes_cols  = c("Audio6_1...108","Audio6_1...109","Audio6_1...110","Audio6_1...111")
+)
+
+Aud_09_NES_df <- make_audio_nes_df(
+  df = story_df, audnum = 9,
+  srq_col   = "Audio9...123",
+  fam_col   = "Audio9_1...129",
+  enjoy_col = "Audio9_1...130",
+  nes_cols  = c("Audio9_1...131","Audio9_1...132","Audio9_1...133","Audio9_1...134")
+)
+
+Aud_10_NES_df <- make_audio_nes_df(
+  df = story_df, audnum = 10,
+  srq_col   = "Audio10...146",
+  fam_col   = "Audio10_1...152",
+  enjoy_col = "Audio10_1...153",
+  nes_cols  = c("Audio10_1...154","Audio10_1...155","Audio10_1...156","Audio10_1...157")
+)
+
+Aud_11_NES_df <- make_audio_nes_df(
+  df = story_df, audnum = 11,
+  srq_col   = "Audio11...169",
+  fam_col   = "Audio11_1...175",
+  enjoy_col = "Audio11_1...176",
+  nes_cols  = c("Audio11_1...177","Audio11_1...178","Audio11_1...179","Audio11_1...180")
+)
+
+Aud_12_NES_df <- make_audio_nes_df(
+  df = story_df, audnum = 12,
+  srq_col   = "Audio12...192",
+  fam_col   = "Audio12_1...198",
+  enjoy_col = "Audio12_1...199",
+  nes_cols  = c("Audio12_1...200","Audio12_1...201","Audio12_1...202","Audio12_1...203")
+)
+
+# Combine all audio dataframes 
+NES_combined_df <- bind_rows(
+  Aud_01_NES_df,
+  Aud_02_NES_df,
+  Aud_05_NES_df,
+  Aud_06_NES_df,
+  Aud_09_NES_df,
+  Aud_10_NES_df,
+  Aud_11_NES_df,
+  Aud_12_NES_df
+)
+
+# Quick checks (optional)
+str(NES_combined_df)
+summary(NES_combined_df)
+head(NES_combined_df)
+
+# Downstream grouping columns 
+NES_combined_df <- NES_combined_df %>%
+  mutate(
+    Duration = ifelse(AudNum %in% c(1, 2, 5, 6), "500 ms", "3000 ms"),
+    Timbre   = ifelse(AudNum %in% c(1, 2, 9, 10, 11, 12), "sine",
+                      ifelse(AudNum %in% c(5, 6), "noise", "Other")),
+    warble   = ifelse(AudNum %in% c(1, 2, 5, 6, 9, 10), "none",
+                      ifelse(AudNum %in% c(11, 12), "6 Hz", "Other")),
+    AttackTimes = ifelse(AudNum %in% c(1, 5, 9, 11), "fast", "slow")
+  )
+
+# View final
+head(NES_combined_df)
+```
+
+Add audio stimulus labels (needed for figures and descriptives)
+
+```{r}
+library(dplyr)
+
+NES_combined_df <- NES_combined_df %>%
+  mutate(Audio = case_when(
+    AudNum == 1 ~ "5SNF1",
+    AudNum == 2 ~ "5SNS2",
+    AudNum == 5 ~ "5NNF5",
+    AudNum == 6 ~ "5NNS6",
+    AudNum == 9 ~ "3SNF9",
+    AudNum == 10 ~ "3SNS10",
+    AudNum == 11 ~ "3S6F11",
+    AudNum == 12 ~ "3S6S12"  ))
+
+```
+
+## Section 5: Factor Setup, Reference Levels, and SRQ Binary
+
+```{r}
+library(dplyr)
+library(lme4)
+library(lmerTest)
+library(car)
+library(MuMIn)
+library(broom.mixed)
+
+NES_combined_df <- NES_combined_df %>%
+  mutate(
+    Duration = factor(Duration),
+    Timbre = factor(Timbre),
+    warble = factor(warble),
+    AttackTimes = factor(AttackTimes),
+    ID = factor(ID),
+    SRQ = as.numeric(SRQ),
+    SRQ_yes = ifelse(SRQ == 1, 1, ifelse(SRQ == 2, 0, NA)) # binary outcome
+  )
+
+# Reference levels (match your current choices)
+NES_combined_df <- NES_combined_df %>%
+  mutate(
+    Timbre = relevel(Timbre, ref = "sine"),
+    Duration = relevel(Duration, ref = "3000 ms"),
+    warble = relevel(warble, ref = "none"),
+    AttackTimes = relevel(AttackTimes, ref = "slow")
+  )
+
+```
+
+## Section 6: Descriptive Statistics
+
+### 6a: Familiarity and Enjoyment (Story Group)
+
+```{r}
+NES_combined_df %>%
+  summarise(
+    Familiar_mean = mean(Familiar, na.rm = TRUE),
+    Familiar_sd   = sd(Familiar, na.rm = TRUE),
+    Enjoy_mean    = mean(Enjoy, na.rm = TRUE),
+    Enjoy_sd      = sd(Enjoy, na.rm = TRUE),
+    n             = n()
+  )
+
+```
+
+### 6b: Story Yes/No Rate by Audio
+
+```{r}
+# Overall yes rate
+mean(NES_combined_df$SRQ_yes, na.rm = TRUE)
+
+# By audio
+story_by_audio <- NES_combined_df %>%
+  group_by(AudNum) %>%
+  summarise(
+    yes_prop = mean(SRQ_yes, na.rm = TRUE),
+    yes_n = sum(SRQ_yes == 1, na.rm = TRUE),
+    n = sum(!is.na(SRQ_yes))
+  )
+story_by_audio
+
+```
+
+### 6c: Overall NES Scores
+
+```{r}
+# Overall M and SD (across all trials)
+NES_overall <- NES_combined_df %>%
+  summarise(
+    M = mean(Average, na.rm = TRUE),
+    SD = sd(Average, na.rm = TRUE)
+  )
+print(NES_overall)
+
+# Range of stimulus means (min to max across the 8 stimuli)
+NES_by_stimulus <- NES_combined_df %>%
+  group_by(Audio) %>%
+  summarise(M = mean(Average, na.rm = TRUE), .groups = "drop")
+
+cat("NES range:", round(min(NES_by_stimulus$M), 2), "to", round(max(NES_by_stimulus$M), 2))
+print(NES_by_stimulus)
+```
+
+## Section 7: Figure 1 — Story Yes/No Stacked Percent Barplot
+
+```{r}
+# Step 1: Create HadMem_df with IDs and audio responses
+HadMem_df <- story_clean %>% 
+  select(
+    Audio1 = Audio1...29,
+    Audio2 = Audio2...52,
+    Audio5 = Audio5...77,
+    Audio6 = Audio6...100,
+    Audio9 = Audio9...123,
+    Audio10 = Audio10...146,
+    Audio11 = Audio11...169,
+    Audio12 = Audio12...192
+  )
+
+# Check the structure of the new dataframe
+str(HadMem_df)
+
+# View the first few rows
+head(HadMem_df)
+```
+
+```{r}
+
+# Convert columns to numeric to ensure proper counting
+HadMem_df[] <- lapply(HadMem_df, as.numeric)
+
+# Count 1.0 and 2.0 in each column
+count_results <- lapply(HadMem_df, function(x) {
+  c(
+    "1.0" = sum(x == 1.0, na.rm = TRUE),
+    "2.0" = sum(x == 2.0, na.rm = TRUE)
+  )
+})
+
+# Convert the results to a data frame for better display
+count_df <- as.data.frame(count_results)
+
+# View the counts
+print(count_df)
+
+# Assuming count_df has rows for 1.0 (Yes) and 2.0 (No) responses
+# and columns for each audio clip
+
+```
+
+```{r}
+names(count_df) <- c("5SNF1", "5SNS2", "5NNF5", "5NNS6", "3SNF9", "3SNS10", "3S6F11", "3S6S12")
+
+print(count_df)
+```
+
+```{r}
+# --- Clean + stacked % plot (APA export) ---
+
+# 1) Force numeric (fixes "invalid 'type' (character)" errors)
+count_df_num <- as.data.frame(lapply(count_df, function(x) as.numeric(as.character(x))))
+rownames(count_df_num) <- rownames(count_df)
+
+# 2) Drop accidental column named "Audio" if it exists
+if ("Audio" %in% colnames(count_df_num)) {
+  count_df_num <- count_df_num[, colnames(count_df_num) != "Audio", drop = FALSE]
+}
+
+# 3) Make matrix (rows are responses, cols are stimuli)
+mat <- as.matrix(count_df_num)
+
+# Your coding: row 1 = 1.0 (Yes), row 2 = 2.0 (No)
+rownames(mat) <- c("Yes", "No")
+mat <- mat[c("Yes", "No"), , drop = FALSE]   # ensures Yes is bottom in stacked bars
+
+# 4) Percent within each stimulus (each column sums to 100)
+pct <- prop.table(mat, margin = 2) * 100
+
+# Overall mean %Yes (count-weighted)
+overall_yes <- sum(mat["Yes", ], na.rm = TRUE) / sum(mat, na.rm = TRUE) * 100
+
+# Clean x labels (remove R's "X" prefix for names starting with digits)
+labs <- colnames(pct)
+labs <- gsub("^X", "", labs)
+
+# Colors (match your current palette)
+barplot_colors <- c("Yes" = "skyblue", "No" = "salmon")
+
+# --- APA export ---
+png("figure1_story_frequency_percent_stacked.png",
+    width = 6.5, height = 4.5, units = "in", res = 300, family = "Arial")
+
+# Give space on right for legend; big bottom margin for rotated labels
+par(mar = c(8, 4, 1, 6) + 0.1)
+
+bp <- barplot(pct,
+              beside = FALSE,
+              col = barplot_colors,
+              ylim = c(0, 100),
+              ylab = "Percent of Trials",
+              xlab = "",
+              names.arg = labs,
+              las = 2,
+              cex.lab = 1.1,
+              cex.axis = 0.95)
+
+# Mean line (~66%)
+abline(h = overall_yes, lty = 2, lwd = 2)
+
+# Legend outside the plot area (right side)
+par(xpd = NA)
+legend(x = par("usr")[2] + 0.2, y = 100,
+       legend = c("Yes", "No"),
+       fill = barplot_colors,
+       bty = "n",
+       cex = 1.0)
+par(xpd = FALSE)
+
+# Label only the YES segment (bottom) to reduce clutter
+yes_vals <- pct["Yes", ]
+text(x = bp,
+     y = yes_vals / 2,
+     labels = sprintf("%.0f%%", yes_vals),
+     cex = 0.8,
+     col = "white",
+     font = 2)
+
+dev.off()
+
+```
+
+## Section 8: Logistic GLMM — Story Yes/No 
+
+Logistic GLMM: SRQ_yes ~ Duration + Timbre + warble + AttackTimes + (1|ID)
+
+```{r}
+story_glmm <- glmer(
+  SRQ_yes ~ Duration + Timbre + warble + AttackTimes + (1 | ID),
+  data = NES_combined_df,
+  family = binomial(link = "logit")
+)
+
+summary(story_glmm)
+car::Anova(story_glmm, type = 3)
+tidy(story_glmm, effects = "fixed", conf.int = TRUE, exponentiate = TRUE)  # odds ratios
+
+```
+
+```{r}
+# GLMM R² and formatted output #
+cat("GLMM R² VALUES\n")
+r2_glmm <- MuMIn::r.squaredGLMM(story_glmm)
+cat(sprintf("Marginal R² (fixed effects only): %.4f\n", r2_glmm[1]))
+cat(sprintf("Conditional R² (fixed + random):  %.4f\n", r2_glmm[2]))
+```
+
+## Section 9: NES Linear Mixed-Effects Model  
+
+LMM: Average ~ Duration + Timbre + warble + AttackTimes + (1|ID)
+
+```{r}
+nes_df <- NES_combined_df %>% filter(!is.na(Average))
+
+nes_lmm <- lmer(
+  Average ~ Duration + Timbre + warble + AttackTimes + (1 | ID),
+  data = nes_df,
+  REML = TRUE
+)
+
+summary(nes_lmm)
+car::Anova(nes_lmm, type = 3)
+tidy(nes_lmm, effects = "fixed", conf.int = TRUE)
+MuMIn::r.squaredGLMM(nes_lmm)
+
+```
+
+## Section 10: Load Context Data and Between-Group Analysis
+
+Requires context_aud_long.csv from the context .qmd (run that first).
+
+```{r}
+library(readr)
+
+aud_long <- read_csv(file.choose())
+
+```
+
+### 10a: Construct Audio-Level Summary Dataframes
+
+```{r}
+library(dplyr)
+
+story_audio_summary <- NES_combined_df %>%
+  mutate(
+    SRQ = as.numeric(SRQ),
+    SRQ_yes = if_else(SRQ == 1, 1, 0)
+  ) %>%
+  group_by(AudNum, Duration, Timbre, warble, AttackTimes) %>%
+  summarise(
+    story_yes_prop = mean(SRQ_yes, na.rm = TRUE),
+    NES_mean       = mean(Average, na.rm = TRUE),
+    Familiar_mean  = mean(Familiar, na.rm = TRUE),
+    Enjoy_mean     = mean(Enjoy, na.rm = TRUE),
+    n_story        = n(),
+    .groups = "drop"
+  )
+
+story_audio_summary
+
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+
+library(dplyr)
+
+# Summarise context-ease per audio
+context_audio_summary <- aud_long %>%
+  group_by(Audio) %>%
+  summarise(
+    ContextEase_mean = mean(Rating, na.rm = TRUE),
+    ContextEase_sd   = sd(Rating, na.rm = TRUE),
+    n_context        = n(),
+    .groups = "drop"
+  )
+
+context_audio_summary
+
+```
+
+```{r}
+library(dplyr)
+
+audio_feature_key <- tibble::tribble(
+  ~Audio,     ~Duration,   ~Timbre,  ~warble, ~AttackTimes,
+  "5SNF1",    "500 ms",    "sine",   "none",  "fast",
+  "5SNS2",    "500 ms",    "sine",   "none",  "slow",
+  "5NNF5",    "500 ms",    "noise",  "none",  "fast",
+  "5NNS6",    "500 ms",    "noise",  "none",  "slow",
+  "3SNF9",    "3000 ms",   "sine",   "none",  "fast",
+  "3SNS10",   "3000 ms",   "sine",   "none",  "slow",
+  "3S6F11",   "3000 ms",   "sine",   "6 Hz",  "fast",
+  "3S6S12",   "3000 ms",   "sine",   "6 Hz",  "slow"
+) %>%
+  mutate(
+    Duration = factor(Duration),
+    Timbre = factor(Timbre),
+    warble = factor(warble),
+    AttackTimes = factor(AttackTimes)
+  )
+
+context_audio_summary <- context_audio_summary %>%
+  left_join(audio_feature_key, by = "Audio")
+
+context_audio_summary
+
+```
+
+```{r}
+
+context_audio_summary <- context_audio_summary %>%
+    mutate(AudNum = as.numeric(str_extract(Audio, "\\d+$")))
+
+# Verify the mapping looks right
+context_audio_summary %>% select(Audio, AudNum)
+
+audio_level_df <- story_audio_summary %>%
+    left_join(context_audio_summary, by = "AudNum")
+
+```
+
+### 10b: Between-Group Regression 
+
+Tests whether mean ease-of-context ratings predict the proportion of "yes" story responses (stimulus-level, n = 8).
+
+```{r}
+# Pearson correlation test
+test <- cor.test(audio_level_df$ContextEase_mean, audio_level_df$story_yes_prop)
+test
+```
+
+```{r}
+model <- lm(story_yes_prop ~ ContextEase_mean, data = audio_level_df)
+model
+summary(model)
+```
+```{r}
+# Regression CIs and full statistics 
+cat("95% CI for regression coefficients:\n")
+print(confint(model))
+cat("\n")
+
+coef_summary <- summary(model)$coefficients
+r_sq <- summary(model)$r.squared
+adj_r_sq <- summary(model)$adj.r.squared
+f_stat <- summary(model)$fstatistic
+ci <- confint(model)
+
+cat("Between-group regression\n")
+cat(sprintf("B = %.2f, SE = %.2f, t(%.0f) = %.2f, p = %.3f, 95%% CI [%.2f, %.2f]\n",
+    coef_summary[2,1], coef_summary[2,2], f_stat[3], coef_summary[2,3], 
+    coef_summary[2,4], ci[2,1], ci[2,2]))
+cat(sprintf("R² = %.2f, adjusted R² = %.2f\n", r_sq, adj_r_sq))
+cat(sprintf("F(%.0f, %.0f) = %.2f, p = %.3f\n", f_stat[2], f_stat[3], f_stat[1],
+    pf(f_stat[1], f_stat[2], f_stat[3], lower.tail = FALSE)))
+```
+
+### 10c: Figure 3 — Context Ease vs. Story Yes Proportion
+
+```{r}
+library(ggplot2)
+
+# Fit the model
+model_story_from_context <- lm(story_yes_prop ~ ContextEase_mean, data = audio_level_df)
+summary(model_story_from_context)
+
+# Make AudNum a factor for discrete colors/legend
+audio_level_df <- audio_level_df %>%
+  mutate(AudNum = factor(AudNum))
+
+# Plot WITH color + legend using AudNum
+figure_story_from_context <- ggplot(
+  audio_level_df,
+  aes(x = ContextEase_mean, y = story_yes_prop, color = AudNum)
+) +
+  geom_point(size = 3, alpha = 0.8) +
+  geom_smooth(
+    method = "lm",
+    se = TRUE,
+    color = "black",
+    linetype = "solid",
+    linewidth = 1,
+    aes(group = 1)  # one regression line across all points
+  ) +
+  labs(
+    x = "Mean Context Ease",
+    y = "Story Yes Proportion",
+    color = "Audio\nStimulus (AudNum)"
+  ) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1") +
+  theme(
+    text = element_text(family = "Arial", size = 10),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10),
+    legend.text = element_text(size = 8),
+    legend.title = element_text(size = 9),
+    legend.position = "right",
+    plot.title = element_blank()
+  )
+
+# Save
+ggsave(
+  filename = "figure_storyYesProp_vs_contextEase_AudNum.png",
+  plot = figure_story_from_context,
+  width = 6.5,
+  height = 4.5,
+  dpi = 300,
+  units = "in"
+)
+
+
+```
+
+## Section 11: Figure 2 — Combined NES + Ease-of-Context Violin 
+
+Uses aud_long (Section 10) and NES_combined_df (Section 4).
+
+```{r}
+library(ggplot2)
+library(patchwork)
+library(RColorBrewer)
+
+# Shared palette (locks identical colors to the same Audio level across BOTH plots)
+audio_levels <- sort(unique(c(as.character(NES_combined_df$Audio),
+                              as.character(aud_long$Audio))))
+
+shared_pal <- setNames(
+  brewer.pal(max(3, min(8, length(audio_levels))), "Set2")[1:length(audio_levels)],
+  audio_levels
+)
+
+# Figure 2 (NES)
+figure2 <- ggplot(NES_combined_df, aes(x = factor(Audio), y = Average, fill = factor(Audio))) +
+  geom_violin(alpha = 0.7, trim = FALSE) +
+  geom_jitter(width = 0.15, alpha = 0.4, size = 1.5, color = "gray20") +
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 4, color = "red") +
+  scale_fill_manual(values = shared_pal) +
+  scale_x_discrete(labels = NULL) +                 # remove individual x tick labels
+  labs(
+    x = "Stimulus",
+    y = "NES ratings",
+    fill = "Stimulus"                               # legend title
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Arial", size = 10),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 9),
+    axis.text.x = element_blank(),                  # hide x-axis tick text
+    axis.ticks.x = element_blank(),                 # hide x-axis tick marks
+    legend.position = "right",
+    legend.text = element_text(size = 9),
+    legend.title = element_text(size = 10),
+    panel.grid.major.x = element_blank(),
+    plot.title = element_blank(),
+    plot.subtitle = element_blank()
+  )
+
+# Figure 4 (Ease of context) 
+figure4 <- ggplot(aud_long, aes(x = factor(Audio), y = Rating, fill = factor(Audio))) +
+  geom_violin(alpha = 0.7, trim = FALSE) +
+  geom_jitter(width = 0.15, alpha = 0.4, size = 1.5, color = "gray20") +
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 4, color = "red") +
+  scale_y_continuous(limits = c(1, 6), breaks = NULL) +  # remove 1–6 tick labels
+  scale_fill_manual(values = shared_pal) +
+  scale_x_discrete(labels = NULL) +                      # remove individual x tick labels
+  labs(
+    x = "Stimulus",
+    y = "Ease of Context Ratings",
+    fill = "Stimulus"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Arial", size = 10),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 9),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "right",
+    legend.text = element_text(size = 9),
+    legend.title = element_text(size = 10),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    plot.title = element_blank()
+  )
+
+# Stack + shared legend 
+stacked_fig <- figure2 / figure4 + plot_layout(guides = "collect")
+
+ggsave(
+  "figure2_figure4_stacked.png",
+  plot = stacked_fig,
+  width = 6.5,
+  height = 9,
+  dpi = 300,
+  units = "in"
+)
+
+
+```
+

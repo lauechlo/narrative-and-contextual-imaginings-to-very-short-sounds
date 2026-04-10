@@ -1,0 +1,432 @@
+---
+title: "Context Group Analysis"
+format: html
+editor: visual
+---
+
+
+## Section 1: Load Data
+
+```{r}
+# Load necessary libraries
+library(readxl)
+library(ggplot2)
+library(dplyr)
+
+# Step 1: Load the Excel file into R
+context_df <- read_xlsx(file.choose())
+```
+
+## Section 2: Drop Qualtrics Metadata Columns
+
+```{r}
+library(dplyr)
+
+context_df <- context_df %>%
+  select(-c(
+    StartDate, EndDate, Status, IPAddress, Progress, Finished, RecordedDate, ResponseId,
+    RecipientLastName, RecipientFirstName, RecipientEmail, ExternalReference, LocationLatitude, LocationLongitude,
+    DistributionChannel, UserLanguage
+  ))
+
+# Display the updated dataframe
+context_df <- context_df %>%
+  select(
+-contains("15-second pause"),
+    -contains("20-second delay"),
+    - contains("pause_"),
+    - contains("Q3_"))
+
+
+
+```
+
+## Section 3: Headphone Check Filtering
+
+failed headphone checks 6.0 (correct answer) for column Q2...22 5.0 (correct answer) for column Q2...23 6.0 (correct answer) for column Q2...24
+
+Anyone who got a wrong answer will be removed! Then, I will count the number of IDs (people still left)
+
+```{r}
+# Check individual conditions
+context_clean <- context_df[-1, ]
+context_df <- context_df[-1, ]
+
+
+# Convert columns to numeric
+context_clean <- context_clean %>%
+  mutate(across(c(`Q2...22`, `Q2...23`, `Q2...24`), as.numeric))
+
+context_df <- context_df %>%
+  mutate(across(c(`Q2...22`, `Q2...23`, `Q2...24`), as.numeric))
+
+# Handle missing values
+context_clean <- context_clean %>%
+  filter(!is.na(`Q2...22`) & !is.na(`Q2...23`) & !is.na(`Q2...24`)) %>%
+  filter(`Q2...22` == 6.0 & 
+         `Q2...23` == 5.0 & 
+         `Q2...24` == 6.0)
+
+
+# Handle missing values
+context_df <- context_df %>%
+  filter(!is.na(`Q2...22`) & !is.na(`Q2...23`) & !is.na(`Q2...24`)) %>%
+  filter(`Q2...22` == 6.0 & 
+         `Q2...23` == 5.0 & 
+         `Q2...24` == 6.0)
+
+
+```
+
+## Section 4: Extract Ease-of-Context Ratings
+
+```{r}
+# Step 2: Extract the columns Aud01_1 to Aud08_1
+aud_columns <- context_clean %>% 
+  select(starts_with("Aud") & ends_with("_1"))
+
+# Ensure all values are numeric and remove trailing .0
+aud_columns[] <- lapply(aud_columns, function(x) {
+  # Convert to numeric if possible
+  x <- as.numeric(as.character(x))
+  # Return the numeric values
+  return(x)
+})
+
+# Check for any NA values (which would indicate non-numeric data)
+sapply(aud_columns, function(x) sum(is.na(x)))
+```
+
+## Section 5: Pivot to Long Format and Label Stimuli
+
+```{r}
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+
+# Convert wide data to long format
+aud_long <- aud_columns %>%
+  pivot_longer(cols = everything(), names_to = "Audio", values_to = "Rating")
+
+# Make sure Rating is numeric (if not already)
+aud_long$Rating <- as.numeric(aud_long$Rating)
+
+```
+
+```{r}
+# Define your label mapping
+label_mapping <- c(
+  "Aud01_1" = "5SNF1",
+  "Aud02_1" = "5SNS2",
+  "Aud05_1" = "5NNF5",
+  "Aud06_1" = "5NNS6",
+  "Aud09_1" = "3SNF9",
+  "Aud10_1" = "3SNS10",
+  "Aud11_1" = "3S6F11",
+  "Aud12_1" = "3S6S12"
+)
+
+# Update the Audio column
+aud_long$Audio <- label_mapping[aud_long$Audio]
+
+# Check the unique values to confirm
+unique(aud_long$Audio)
+
+```
+
+
+## Section 6: Add Acoustic Feature Columns to aud_long
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+library(stringr)
+aud_long <- aud_long %>%
+  mutate(Aud_num = as.integer(str_extract(Audio, "\\d+$")))
+
+# Create a new column to group Aud 1, 2, 5, 6 as '500 ms' and the rest as '3000 ms'
+aud_long$Duration <- ifelse(aud_long$Aud_num %in% c(1, 2, 5, 6), "500 ms", "3000 ms")
+
+# Create a new column to group Aud 1 & 2 vs 5 & 6 for different timbres
+aud_long$Timbre <- ifelse(aud_long$Aud_num %in% c(1, 2, 9, 10, 11, 12), "sine", 
+                                  ifelse(aud_long$Aud_num %in% c(5, 6), "noise", 
+                                         "Other"))
+
+# Create a new column to group Aud 9 & 10 as 'none' and Aud 11 & 12 as '6 Hz'
+aud_long$warble <- ifelse(aud_long$Aud_num %in% c(1, 2, 5, 6, 9, 10), "none", 
+                                ifelse(aud_long$Aud_num %in% c(11, 12), "6 Hz", 
+                                       "Other"))
+# Create a new column to group Aud 1, 5, 9, 11 as 'fast' and the rest as 'slow'
+aud_long$AttackTimes <- ifelse(aud_long$Aud_num %in% c(1, 5, 9, 11), "fast", "slow")
+
+
+
+```
+
+## Section 7: Create context_long for LMM
+
+Reshapes context_clean to long format for the LMM
+
+```{r}
+context_ANOVA <- context_clean %>%
+  select(ID, matches("^Aud.*_1$"))
+
+library(tidyr)
+library(dplyr)
+
+# Reshape to long format
+context_long <- context_ANOVA %>%
+  pivot_longer(
+    cols = starts_with("Aud"),  # Select all audio columns
+    names_to = "Audio",         # New column for audio names (e.g., "Aud01_1")
+    values_to = "Rating"        # New column for ratings/scores
+  )
+
+
+library(stringr)
+context_long <- context_long %>%
+  mutate(Audio = as.integer(str_extract(Audio, "\\d+")))
+
+
+# Create a new column to group Aud 1 & 2 vs 5 & 6 for different durations
+context_long$Duration <- ifelse(context_long$Audio %in% c(1, 2, 5, 6), "500 ms", 
+                                  ifelse(context_long$Audio %in% c(9, 10, 11, 12), "3000 ms", 
+                                         "Other"))
+
+# Create a new column to group Aud 1 & 2 vs 5 & 6 for different timbres
+context_long$Timbre <- ifelse(context_long$Audio %in% c(1, 2, 9, 10, 11, 12), "sine", 
+                                  ifelse(context_long$Audio %in% c(5, 6), "noise", 
+                                         "Other"))
+
+# Create a new column to group Aud 9 & 10 as 'none' and Aud 11 & 12 as '6 Hz'
+context_long$warble <- ifelse(context_long$Audio %in% c(1, 2, 5, 6, 9, 10), "none", 
+                                ifelse(context_long$Audio %in% c(11, 12), "6 Hz", 
+                                       "Other"))
+# Create a new column to group Aud 1, 5, 9, 11 as 'fast' and the rest as 'slow'
+context_long$AttackTimes <- ifelse(context_long$Audio %in% c(1, 5, 9, 11), "fast", "slow")
+
+
+```
+
+## Section 8: Descriptive Statistics
+
+```{r}
+library(dplyr)
+
+cat("CONTEXT RATINGS: DESCRIPTIVE STATISTICS\n")
+
+# Overall statistics
+cat("OVERALL\n")
+overall_stats <- aud_long %>%
+ summarise(
+   M = mean(Rating, na.rm = TRUE),
+   SD = sd(Rating, na.rm = TRUE),
+   Min = min(Rating, na.rm = TRUE),
+   Max = max(Rating, na.rm = TRUE),
+   N = n()
+ )
+print(overall_stats)
+cat("\n")
+
+# By individual stimulus with IQR
+cat("BY INDIVIDUAL STIMULUS\n")
+by_stimulus <- aud_long %>%
+ group_by(Audio) %>%
+ summarise(
+   M = mean(Rating, na.rm = TRUE),
+   SD = sd(Rating, na.rm = TRUE),
+   Median = median(Rating, na.rm = TRUE),
+   IQR = IQR(Rating, na.rm = TRUE),
+   Min = min(Rating, na.rm = TRUE),
+   Max = max(Rating, na.rm = TRUE),
+   N = n(),
+   .groups = 'drop'
+ )
+print(by_stimulus)
+cat("\n")
+
+# By Duration
+cat("BY DURATION\n")
+by_duration <- aud_long %>%
+ group_by(Duration) %>%
+ summarise(
+   M = mean(Rating, na.rm = TRUE),
+   SD = sd(Rating, na.rm = TRUE),
+   Median_IQR = sprintf("%.1f (%.1f)", median(Rating, na.rm = TRUE), IQR(Rating, na.rm = TRUE)),
+   range = sprintf("%.2f–%.2f", min(Rating, na.rm = TRUE), max(Rating, na.rm = TRUE)),
+   n_stimuli = n_distinct(Audio),
+   N_responses = n(),
+   .groups = 'drop'
+ )
+print(by_duration)
+cat("\n")
+
+# By Timbre
+cat("BY TIMBRE\n")
+by_timbre <- aud_long %>%
+ group_by(Timbre) %>%
+ summarise(
+   M = mean(Rating, na.rm = TRUE),
+   SD = sd(Rating, na.rm = TRUE),
+   Median_IQR = sprintf("%.1f (%.1f)", median(Rating, na.rm = TRUE), IQR(Rating, na.rm = TRUE)),
+   range = sprintf("%.2f–%.2f", min(Rating, na.rm = TRUE), max(Rating, na.rm = TRUE)),
+   n_stimuli = n_distinct(Audio),
+   N_responses = n(),
+   .groups = 'drop'
+ )
+print(by_timbre)
+cat("\n")
+
+# By Warble
+cat("BY WARBLE\n")
+by_warble <- aud_long %>%
+ group_by(warble) %>%
+ summarise(
+   M = mean(Rating, na.rm = TRUE),
+   SD = sd(Rating, na.rm = TRUE),
+   Median_IQR = sprintf("%.1f (%.1f)", median(Rating, na.rm = TRUE), IQR(Rating, na.rm = TRUE)),
+   range = sprintf("%.2f–%.2f", min(Rating, na.rm = TRUE), max(Rating, na.rm = TRUE)),
+   n_stimuli = n_distinct(Audio),
+   N_responses = n(),
+   .groups = 'drop'
+ )
+print(by_warble)
+cat("\n")
+
+# By Attack Time
+cat("BY ATTACK TIME\n")
+by_attack <- aud_long %>%
+ group_by(AttackTimes) %>%
+ summarise(
+   M = mean(Rating, na.rm = TRUE),
+   SD = sd(Rating, na.rm = TRUE),
+   Median_IQR = sprintf("%.1f (%.1f)", median(Rating, na.rm = TRUE), IQR(Rating, na.rm = TRUE)),
+   range = sprintf("%.2f–%.2f", min(Rating, na.rm = TRUE), max(Rating, na.rm = TRUE)),
+   n_stimuli = n_distinct(Audio),
+   N_responses = n(),
+   .groups = 'drop'
+ )
+print(by_attack)
+```
+
+Overall M and SD 
+
+```{r}
+# Overall M and SD (across all trials)
+context_overall <- aud_long %>%
+  summarise(
+    M = mean(Rating, na.rm = TRUE),
+    SD = sd(Rating, na.rm = TRUE)
+  )
+print(context_overall)
+
+# Range of stimulus means
+context_by_stimulus <- aud_long %>%
+  group_by(Audio) %>%
+  summarise(M = mean(Rating, na.rm = TRUE), .groups = "drop")
+
+cat("Context range:", round(min(context_by_stimulus$M), 2), "to", round(max(context_by_stimulus$M), 2))
+print(context_by_stimulus)
+```
+
+## Section 9: Ease-of-Context LMM  
+
+LMM: Rating ~ Duration + Timbre + warble + AttackTimes + (1|ID)
+
+```{r}
+library(lme4)
+library(lmerTest)
+library(car)
+library(MuMIn)
+library(broom.mixed)
+
+# Ensure factors are set correctly
+context_long <- context_long %>%
+ mutate(
+   Duration = as.factor(Duration),
+   Timbre = as.factor(Timbre),
+   warble = as.factor(warble),
+   AttackTimes = as.factor(AttackTimes),
+   ID = as.factor(ID),
+   Rating = as.numeric(Rating)
+ )
+
+# Set reference levels
+context_long$Timbre <- relevel(context_long$Timbre, ref = "sine")
+context_long$Duration <- relevel(context_long$Duration, ref = "3000 ms")
+context_long$warble <- relevel(context_long$warble, ref = "none")
+context_long$AttackTimes <- relevel(context_long$AttackTimes, ref = "slow")
+
+# Fit the main effects model
+context_lmm <- lmer(
+ Rating ~ Duration + Timbre + warble + AttackTimes + (1 | ID),
+ data = context_long,
+ REML = TRUE
+)
+
+cat("CONTEXT GROUP: LINEAR MIXED-EFFECTS MODEL RESULTS\n")
+
+# Model summary
+cat("MODEL SUMMARY\n")
+print(summary(context_lmm))
+cat("\n")
+
+# Type III ANOVA table
+cat("TYPE III ANOVA TABLE\n")
+anova_results <- car::Anova(context_lmm, type = 3)
+print(anova_results)
+cat("\n")
+
+# Fixed effects with 95% CIs
+cat("FIXED EFFECTS WITH 95% CONFIDENCE INTERVALS\n")
+tidy_fixed <- tidy(context_lmm, effects = "fixed", conf.int = TRUE)
+print(tidy_fixed)
+cat("\n")
+
+# Model fit statistics
+cat("MODEL FIT STATISTICS\n")
+r2_values <- MuMIn::r.squaredGLMM(context_lmm)
+cat(sprintf("Marginal R² (fixed effects only): %.4f\n", r2_values[1]))
+cat(sprintf("Conditional R² (fixed + random): %.4f\n", r2_values[2]))
+cat(sprintf("AIC: %.2f\n", AIC(context_lmm)))
+cat(sprintf("BIC: %.2f\n", BIC(context_lmm)))
+cat("\n")
+
+# Practical interpretation
+cat("PRACTICAL INTERPRETATION\n")
+coefs <- fixef(context_lmm)
+cat(sprintf("Timbre effect: Noise stimuli yield context ratings %.3f points higher than sine (on 6-point scale)\n",
+           coefs["Timbrenoise"]))
+cat(sprintf("Duration effect: 500ms stimuli yield context ratings %.3f points different from 3000ms\n",
+           coefs["Duration500 ms"]))
+cat(sprintf("Warble effect: No warble yields context ratings %.3f points different from 6Hz warble\n",
+           -coefs["warble6 Hz"]))  # Negative because we want none vs 6Hz
+```
+
+```{r}
+cat("Context Ease-of-Context LMM\n")
+
+tidy_ctx <- tidy(context_lmm, effects = "fixed", conf.int = TRUE)
+coefs_ctx <- fixef(context_lmm)
+r2_ctx <- MuMIn::r.squaredGLMM(context_lmm)
+
+# Print each predictor in Sage format
+for (i in 2:nrow(tidy_ctx)) {
+  row <- tidy_ctx[i, ]
+  cat(sprintf("%s: b = %.2f, SE = %.2f, 95%% CI [%.2f, %.2f], t(%.1f) = %.2f, p = %s\n",
+      row$term,
+      row$estimate,
+      row$std.error,
+      row$conf.low,
+      row$conf.high,
+      row$df,
+      row$statistic,
+      ifelse(row$p.value < .001, "< .001", sprintf("%.3f", row$p.value))
+  ))
+}
+
+cat(sprintf("\nR²m = %.4f, R²c = %.4f\n", r2_ctx[1], r2_ctx[2]))
+```
+
