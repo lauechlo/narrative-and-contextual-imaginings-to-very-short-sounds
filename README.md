@@ -1,9 +1,6 @@
 # Narrative and Contextual Imagination to Very Short Sounds
 
 ## Analysis Code
-
-Lau, C., Turnbull, C., Loui, P., & Margulis, E. H.
-
 This repository contains the analysis code for "Narrative and Contextual Imagination to Very Short Sounds." All analyses were conducted in R (via Quarto) and Python (via Google Colab).
 
 ### Repository Structure
@@ -69,7 +66,3 @@ Run `story_clean.qmd` and `context_clean.qmd` in either order. These perform:
 ### AI Disclosure
 
 The first author used Claude (Anthropic) and ChatGPT (OpenAI) for checking, debugging, and generating R and Python code in the statistical analysis pipeline. All AI-generated code outputs were independently verified against raw data by the first author. No AI tool was used to design the study, collect data, interpret results, or draw conclusions.
-
-### Contact
-
-Corresponding author: Elizabeth H. Margulis (ehm@princeton.edu)
