@@ -13,12 +13,14 @@ This repository contains the analysis code for "Narrative and Contextual Imagina
 │   ├── Single_Sounds_Story_Group_Analysis.ipynb    # Story group text cleaning & word clouds
 │   ├── Single_Sounds_Context_Group_Analysis.ipynb  # Context group text cleaning & word clouds
 │   └── Single_Sounds_Between_Group.ipynb           # Cross-group TF-IDF cosine similarity & t-tests
-├── data/
-│   └── [de-identified response data]
 ├── stimuli/
 │   └── [8 synthesized audio stimuli]
 └── README.md
 ```
+
+### Data Availability
+
+The data that support the findings of this study are not openly available due to reasons of participant confidentiality (free-text responses that may contain identifying information), and are available from the corresponding author upon reasonable request.
 
 ### Execution Order
 
